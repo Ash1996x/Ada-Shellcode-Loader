@@ -1,0 +1,31 @@
+## .gitignore
+```
+# Compiled binaries
+*.exe
+
+# Shellcode files
+*.bin
+
+# Ada compilation artifacts
+*.ali
+*.o
+
+# Build artifacts
+*_build.adb
+loader_build.adb
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
