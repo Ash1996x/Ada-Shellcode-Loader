@@ -64,6 +64,10 @@ python3 build.py shellcode.bin
 # Output: loader.exe
 ```
 
+![Ada Shellcode Loader Demo](screenshot/loader-demo.png)
+
+This shows the polymorphic executable being built from shellcode via `build.py`.
+
 ## Polymorphic Builds
 
 Every compilation generates a completely unique binary:
