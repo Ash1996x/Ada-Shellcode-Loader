@@ -66,7 +66,7 @@ python3 build.py shellcode.bin
 
 ![Ada Shellcode Loader Demo](screenshot/loader-demo.png)
 
-This shows the polymorphic executable being built from shellcode via `build.py`.
+This shows defender cant detect the embedded shellcode. 
 
 ## Polymorphic Builds
 
