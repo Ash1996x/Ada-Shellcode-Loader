@@ -93,39 +93,3 @@ This ensures the loader cannot be signatured, even with widespread use.
 
 This is for authorized security testing only. Ensure you have proper authorization before use.
 
-## License
-
-MIT
-```
-
-## .gitignore
-```
-# Compiled binaries
-*.exe
-
-# Shellcode files
-*.bin
-
-# Ada compilation artifacts
-*.ali
-*.o
-
-# Build artifacts
-*_build.adb
-loader_build.adb
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Editor files
-*.swp
-*.swo
-*~
-.vscode/
-.idea/
